@@ -1,0 +1,5 @@
+__pycache__/
+.pytest_cache/
+.coverage
+coverage_map.json
+test_history.json
