@@ -61,8 +61,6 @@ def test_git_changed_files():
     # Since we initialized Git and have made commits, we can query our own git repo
     changed = get_latest_changed_files(".")
     assert isinstance(changed, list)
-    # The last commit (Commit 4) added core/engine.py and core/test_engine.py
-    # Let's verify that these are in the list of changed files
     normalized = [f.replace("\\", "/") for f in changed]
-    assert "core/engine.py" in normalized
-    assert "core/test_engine.py" in normalized
+    assert "core/ingestion.py" in normalized
+    assert "core/test_ingestion.py" in normalized

@@ -8,8 +8,9 @@ cov = None
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
     global cov
-    # Configure coverage to monitor the sample_app directory
-    cov = coverage.Coverage(source=["sample_app"])
+    # Monitor both "sample_app" package and the "main" module to support
+    # executing pytest from either the repository root or inside sample_app/
+    cov = coverage.Coverage(source=["sample_app", "main"])
     config._covered_files_map = {}
     config._run_results = {}
 
@@ -27,11 +28,21 @@ def pytest_runtest_call(item):
         cov.save()
         data = cov.get_data()
         covered_files = []
+        
+        # Determine repo root to normalize paths consistently
+        cwd = os.getcwd()
+        repo_root = os.path.dirname(cwd) if os.path.basename(cwd) == "sample_app" else cwd
+        
         for filepath in data.measured_files():
             # Convert absolute path to a relative path from the repository root
-            rel_path = os.path.relpath(filepath, os.getcwd()).replace("\\", "/")
-            # Only track coverage for files within sample_app, excluding test_main.py itself
-            if rel_path.startswith("sample_app/") and not rel_path.endswith("test_main.py"):
+            rel_path = os.path.relpath(filepath, repo_root).replace("\\", "/")
+            
+            # If pytest is executed from inside sample_app, prefix paths with sample_app/
+            if not rel_path.startswith("sample_app/") and os.path.basename(cwd) == "sample_app":
+                rel_path = f"sample_app/{rel_path}"
+                
+            # Only track coverage for files within sample_app, excluding test files
+            if rel_path.startswith("sample_app/") and not rel_path.endswith("test_main.py") and not rel_path.endswith("conftest.py"):
                 covered_files.append(rel_path)
         
         item.config._covered_files_map[item.nodeid] = covered_files
@@ -40,7 +51,6 @@ def pytest_runtest_call(item):
 def pytest_runtest_makereport(item, call):
     outcome = yield
     rep = outcome.get_result()
-    # Log test result when the test execution actually finishes (the 'call' phase)
     if rep.when == "call":
         item.config._run_results[item.nodeid] = rep.passed
 
@@ -65,7 +75,6 @@ def pytest_sessionfinish(session, exitstatus):
             if nodeid not in history:
                 history[nodeid] = []
             history[nodeid].append(passed)
-            # Retain only the last 5 runs
             history[nodeid] = history[nodeid][-5:]
             
         with open(history_file, "w") as f:
