@@ -66,16 +66,26 @@ def load_run_history(history_path: str = "test_history.json") -> dict:
         print(f"Error loading run history: {e}")
         return {}
 
-def get_test_cases(map_path: str = "coverage_map.json", history_path: str = "test_history.json") -> list[CaseMetadata]:
+def get_test_cases(map_path: str = "coverage_map.json", history_path: str = "test_history.json", use_db: bool = False, conn_params: dict = None) -> list[CaseMetadata]:
     """
     Integrates coverage mapping and historical execution data to build
     a list of CaseMetadata instances representing the test cases.
+    If use_db is True, queries the PostgreSQL database; otherwise, loads from JSON.
     """
-    coverage_map = load_coverage_map(map_path)
-    run_history = load_run_history(history_path)
+    if use_db:
+        try:
+            from core.storage import get_coverage_map, get_historical_runs
+            coverage_map = get_coverage_map(conn_params)
+            run_history = get_historical_runs(conn_params)
+        except Exception as e:
+            print(f"Error reading from database: {e}. Falling back to JSON files.")
+            coverage_map = load_coverage_map(map_path)
+            run_history = load_run_history(history_path)
+    else:
+        coverage_map = load_coverage_map(map_path)
+        run_history = load_run_history(history_path)
     
     # We want to represent all tests found in either the coverage map or history.
-    # Typically, coverage_map is the source of truth for active test cases.
     all_tests = set(coverage_map.keys()) | set(run_history.keys())
     
     test_cases = []
