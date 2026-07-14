@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hybrid Test Prioritization Dashboard</title>
+  <meta name="description" content="Live dashboard for the Hybrid Test Case Prioritization Framework — visualizes test rankings and before/after comparison for regression testing in CI environments." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- React & Babel (CDN — no build tool needed) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface2:    #21262d;
+      --border:      #30363d;
+      --accent:      #58a6ff;
+      --accent-glow: rgba(88,166,255,.18);
+      --green:       #3fb950;
+      --amber:       #d29922;
+      --red:         #f85149;
+      --text:        #e6edf3;
+      --muted:       #7d8590;
+      --font:        'Inter', system-ui, sans-serif;
+      --mono:        'JetBrains Mono', monospace;
+    }
+
+    html { font-size: 15px; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    .shell   { max-width: 1280px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+    .header  {
+      display: flex; align-items: center; gap: 1rem;
+      padding: 1.4rem 0 1rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+    }
+    .logo {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: linear-gradient(135deg,#58a6ff,#bc8cff);
+      display: grid; place-items: center;
+      font-size: 1.2rem; flex-shrink: 0;
+    }
+    .header h1 { font-size: 1.15rem; font-weight: 600; color: var(--text); }
+    .header p  { font-size: .8rem; color: var(--muted); margin-top: .1rem; }
+    .badge-live {
+      margin-left: auto; display: flex; align-items: center; gap: .45rem;
+      font-size: .72rem; color: var(--green); font-weight: 500;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; } 50% { opacity: .4; }
+    }
+
+    /* ── Tabs ─────────────────────────────────────────────────── */
+    .tabs { display: flex; gap: .3rem; margin-bottom: 1.8rem; }
+    .tab {
+      padding: .45rem 1.1rem; border-radius: 8px; border: 1px solid transparent;
+      cursor: pointer; font-size: .85rem; font-weight: 500;
+      background: none; color: var(--muted); transition: all .18s;
+    }
+    .tab:hover   { color: var(--text); background: var(--surface2); }
+    .tab.active  {
+      color: var(--accent); background: var(--accent-glow);
+      border-color: var(--accent);
+    }
+
+    /* ── Card ─────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    .card-header {
+      padding: .9rem 1.2rem; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem;
+    }
+    .card-title { font-size: .9rem; font-weight: 600; }
+    .card-meta  { font-size: .75rem; color: var(--muted); }
+
+    /* ── Stats bar ────────────────────────────────────────────── */
+    .stats { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .stat {
+      flex: 1; min-width: 140px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: .8rem 1rem;
+    }
+    .stat-val { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
+    .stat-lbl { font-size: .72rem; color: var(--muted); margin-top: .2rem; }
+    .stat-val.accent { color: var(--accent); }
+    .stat-val.red    { color: var(--red);    }
+    .stat-val.green  { color: var(--green);  }
+    .stat-val.amber  { color: var(--amber);  }
+
+    /* ── Changed files pill row ───────────────────────────────── */
+    .pills { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1.5rem; }
+    .pill {
+      font-size: .72rem; font-family: var(--mono); padding: .22rem .65rem;
+      border-radius: 20px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text);
+    }
+
+    /* ── Table ────────────────────────────────────────────────── */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    th {
+      text-align: left; padding: .65rem 1rem;
+      color: var(--muted); font-weight: 500; font-size: .72rem;
+      text-transform: uppercase; letter-spacing: .05em;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--surface); z-index: 1;
+    }
+    td { padding: .6rem 1rem; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); transition: background .12s; }
+
+    /* Row heat: colour the left border based on score */
+    .row-high  td:first-child { border-left: 3px solid var(--red);   }
+    .row-mid   td:first-child { border-left: 3px solid var(--amber); }
+    .row-low   td:first-child { border-left: 3px solid var(--border);}
+
+    .test-name {
+      font-family: var(--mono); font-size: .78rem;
+      color: var(--text); word-break: break-all;
+    }
+    .score-chip {
+      display: inline-block; padding: .15rem .55rem;
+      border-radius: 6px; font-weight: 600; font-size: .75rem;
+    }
+    .score-chip.high  { background: rgba(248,81,73,.18);  color: var(--red);   }
+    .score-chip.mid   { background: rgba(210,153,34,.18); color: var(--amber); }
+    .score-chip.low   { background: var(--surface2);      color: var(--muted); }
+
+    .badge-yes { color: var(--red);   font-size: .75rem; font-weight: 600; }
+    .badge-no  { color: var(--muted); font-size: .75rem; }
+
+    .history-dots { display: flex; gap: 3px; align-items: center; }
+    .dot-pass { width:8px; height:8px; border-radius:50%; background: var(--green); }
+    .dot-fail { width:8px; height:8px; border-radius:50%; background: var(--red);   }
+
+    /* ── Comparison view ──────────────────────────────────────── */
+    .cmp-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    @media (max-width: 700px) { .cmp-grid { grid-template-columns: 1fr; } }
+    .cmp-col { }
+    .cmp-col-hdr {
+      font-size: .72rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--muted); margin-bottom: .5rem;
+      padding: 0 .2rem;
+    }
+    .cmp-item {
+      padding: .4rem .7rem; border-radius: 6px; font-size: .78rem;
+      font-family: var(--mono); display: flex; gap: .6rem; align-items: center;
+      margin-bottom: .25rem; background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .cmp-num { color: var(--muted); min-width: 1.6rem; font-weight: 500; }
+    .cmp-moved-pos { color: var(--green); font-size: .72rem; font-weight: 600; }
+    .cmp-moved-neg { color: var(--red);   font-size: .72rem; font-weight: 600; }
+
+    /* ── Loading / error ──────────────────────────────────────── */
+    .state-box {
+      text-align: center; padding: 4rem 1rem; color: var(--muted);
+    }
+    .state-box .icon { font-size: 2.5rem; margin-bottom: .8rem; }
+    .state-box p { font-size: .9rem; max-width: 420px; margin: 0 auto; }
+    .state-box small {
+      display: block; margin-top: .4rem; font-size: .75rem;
+      font-family: var(--mono); color: var(--border);
+    }
+
+    /* ── Refresh button ───────────────────────────────────────── */
+    .btn-refresh {
+      padding: .38rem .9rem; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text); cursor: pointer;
+      font-size: .78rem; font-family: var(--font); transition: all .15s;
+    }
+    .btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ── Config ──────────────────────────────────────────────────────────────────
+const API_BASE = "http://localhost:8001";
+const REFRESH_INTERVAL_MS = 30_000;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function scoreClass(score) {
+  if (score >= 3) return "high";
+  if (score >= 1) return "mid";
+  return "low";
+}
+function rowClass(score) {
+  if (score >= 3) return "row-high";
+  if (score >= 1) return "row-mid";
+  return "row-low";
+}
+function shortName(name) {
+  // Strip the "sample_app/test_main.py::" prefix for display
+  return name.replace(/^.*::/, "");
+}
+
+// ── HistoryDots ──────────────────────────────────────────────────────────────
+function HistoryDots({ history }) {
+  if (!history || history.length === 0)
+    return <span className="badge-no">—</span>;
+  return (
+    <span className="history-dots" title={history.map(h => h ? "P" : "F").join(" ")}>
+      {history.slice(-5).map((h, i) => (
+        <span key={i} className={h ? "dot-pass" : "dot-fail"} />
+      ))}
+    </span>
+  );
+}
+
+// ── RankingTable ─────────────────────────────────────────────────────────────
+function RankingTable({ tests, changedFiles }) {
+  const high   = tests.filter(t => t.score >= 3).length;
+  const mid    = tests.filter(t => t.score >= 1 && t.score < 3).length;
+  const low    = tests.filter(t => t.score === 0).length;
+  const atRisk = tests.filter(t => t.overlap).length;
+
+  return (
+    <>
+      {/* Stats bar */}
+      <div className="stats">
+        <div className="stat">
+          <div className="stat-val accent">{tests.length}</div>
+          <div className="stat-lbl">Total Tests</div>
+        </div>
+        <div className="stat">
+          <div className="stat-val red">{high}</div>
+          <div className="stat-lbl">High Priority (score ≥ 3)</div>
+        </div>
+        <div className="stat">
+          <div className="stat-val amber">{mid}</div>
+          <div className="stat-lbl">Medium Priority</div>
+        </div>
+        <div className="stat">
+          <div className="stat-val green">{atRisk}</div>
+          <div className="stat-lbl">Touch Changed Code</div>
+        </div>
+      </div>
+
+      {/* Changed files */}
+      {changedFiles && changedFiles.length > 0 && (
+        <>
+          <p style={{fontSize:'.75rem', color:'var(--muted)', marginBottom:'.4rem'}}>
+            Files changed in latest commit:
+          </p>
+          <div className="pills">
+            {changedFiles.map(f => <span key={f} className="pill">{f}</span>)}
+          </div>
+        </>
+      )}
+
+      {/* Table */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Prioritized Test Order</span>
+          <span className="card-meta">Sorted by score — highest risk first</span>
+        </div>
+        <div className="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style={{width:'52px'}}>#</th>
+                <th>Test Name</th>
+                <th>Score</th>
+                <th>Changed File?</th>
+                <th>Recent Fails</th>
+                <th>Last 5 Runs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tests.map(t => (
+                <tr key={t.name} className={rowClass(t.score)}>
+                  <td style={{color:'var(--muted)', fontFamily:'var(--mono)'}}>{t.rank}</td>
+                  <td>
+                    <span className="test-name" title={t.name}>{shortName(t.name)}</span>
+                    <br/>
+                    <span style={{fontSize:'.68rem', color:'var(--muted)'}}>{t.name.split('::')[0]}</span>
+                  </td>
+                  <td>
+                    <span className={`score-chip ${scoreClass(t.score)}`}>{t.score}</span>
+                  </td>
+                  <td>
+                    {t.overlap
+                      ? <span className="badge-yes">✓ YES</span>
+                      : <span className="badge-no">no</span>}
+                  </td>
+                  <td style={{color: t.failures_in_last_5 > 0 ? 'var(--red)' : 'var(--muted)'}}>
+                    {t.failures_in_last_5}
+                  </td>
+                  <td><HistoryDots history={t.history} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── ComparisonView ────────────────────────────────────────────────────────────
+function ComparisonView({ data }) {
+  if (!data) return null;
+  const { before, after, detail } = data;
+
+  const detailMap = {};
+  detail.forEach(d => { detailMap[d.name] = d; });
+
+  return (
+    <>
+      <div className="card" style={{marginBottom:'1.5rem'}}>
+        <div className="card-header">
+          <span className="card-title">Before vs. After Prioritization</span>
+          <span className="card-meta">
+            How many positions each test moved when the engine ran
+          </span>
+        </div>
+        <div style={{padding:'1.2rem'}}>
+          <div className="cmp-grid">
+            {/* BEFORE */}
+            <div className="cmp-col">
+              <div className="cmp-col-hdr">🔵 Before (alphabetical / default pytest)</div>
+              {before.map((name, i) => (
+                <div key={name} className="cmp-item">
+                  <span className="cmp-num">{i+1}</span>
+                  <span style={{flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
+                        title={name}>{shortName(name)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* AFTER */}
+            <div className="cmp-col">
+              <div className="cmp-col-hdr">🟠 After (prioritized by engine)</div>
+              {after.map((name, i) => {
+                const d = detailMap[name];
+                const moved = d ? d.moved_by : 0;
+                return (
+                  <div key={name} className="cmp-item">
+                    <span className="cmp-num">{i+1}</span>
+                    <span style={{flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
+                          title={name}>{shortName(name)}</span>
+                    {moved > 0 && <span className="cmp-moved-pos">▲{moved}</span>}
+                    {moved < 0 && <span className="cmp-moved-neg">▼{Math.abs(moved)}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Movement detail table */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Movement Detail</span>
+          <span className="card-meta">Positive = test was promoted (runs earlier)</span>
+        </div>
+        <div className="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Test</th>
+                <th>Before Rank</th>
+                <th>After Rank</th>
+                <th>Score</th>
+                <th>Moved By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail
+                .slice()
+                .sort((a,b) => Math.abs(b.moved_by) - Math.abs(a.moved_by))
+                .map(d => (
+                  <tr key={d.name}>
+                    <td><span className="test-name" title={d.name}>{shortName(d.name)}</span></td>
+                    <td style={{color:'var(--muted)', fontFamily:'var(--mono)'}}>{d.before_rank}</td>
+                    <td style={{fontFamily:'var(--mono)'}}>{d.after_rank}</td>
+                    <td>
+                      <span className={`score-chip ${scoreClass(d.score)}`}>{d.score}</span>
+                    </td>
+                    <td>
+                      {d.moved_by > 0 && <span className="cmp-moved-pos">▲ {d.moved_by}</span>}
+                      {d.moved_by < 0 && <span className="cmp-moved-neg">▼ {Math.abs(d.moved_by)}</span>}
+                      {d.moved_by === 0 && <span style={{color:'var(--muted)'}}>—</span>}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App() {
+  const [tab, setTab]           = useState("ranking");
+  const [ranking, setRanking]   = useState(null);
+  const [comparison, setComparison] = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [rRes, cRes] = await Promise.all([
+        fetch(`${API_BASE}/api/ranking`),
+        fetch(`${API_BASE}/api/comparison`),
+      ]);
+      if (!rRes.ok || !cRes.ok) throw new Error("API returned an error response");
+      const [rData, cData] = await Promise.all([rRes.json(), cRes.json()]);
+      setRanking(rData);
+      setComparison(cData);
+      setLastRefresh(new Date().toLocaleTimeString());
+    } catch (e) {
+      setError(e.message || "Could not reach the API");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Initial load + auto-refresh
+  useEffect(() => {
+    fetchAll();
+    const timer = setInterval(fetchAll, REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [fetchAll]);
+
+  return (
+    <div className="shell">
+      {/* Header */}
+      <header className="header">
+        <div className="logo">⚡</div>
+        <div>
+          <h1>Hybrid Test Prioritization Dashboard</h1>
+          <p>MCA Dissertation Project — Regression Testing in CI Environments</p>
+        </div>
+        <div className="badge-live">
+          <span className="dot" />
+          {lastRefresh ? `Updated ${lastRefresh}` : "Connecting…"}
+        </div>
+      </header>
+
+      {/* Tabs */}
+      <div className="tabs">
+        <button id="tab-ranking"    className={`tab ${tab==="ranking"?"active":""}`}    onClick={() => setTab("ranking")}>
+          📊 Ranked View
+        </button>
+        <button id="tab-comparison" className={`tab ${tab==="comparison"?"active":""}`} onClick={() => setTab("comparison")}>
+          🔀 Before / After
+        </button>
+      </div>
+
+      {/* Refresh */}
+      <div style={{display:'flex', justifyContent:'flex-end', marginBottom:'1rem'}}>
+        <button className="btn-refresh" onClick={fetchAll} id="btn-refresh">
+          ↻ Refresh now
+        </button>
+      </div>
+
+      {/* States */}
+      {loading && (
+        <div className="state-box">
+          <div className="icon">⏳</div>
+          <p>Loading ranking data from the API…</p>
+          <small>{API_BASE}</small>
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className="state-box">
+          <div className="icon">🔌</div>
+          <p>Cannot reach the API server.</p>
+          <small>
+            Start it with: python -m uvicorn dashboard.api:app --port 8001
+          </small>
+          <small style={{marginTop:'.6rem', color:'var(--red)'}}>{error}</small>
+        </div>
+      )}
+
+      {!loading && !error && ranking && (
+        <>
+          {tab === "ranking" && (
+            <RankingTable
+              tests={ranking.tests}
+              changedFiles={ranking.changed_files}
+            />
+          )}
+          {tab === "comparison" && comparison && (
+            <ComparisonView data={comparison} />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

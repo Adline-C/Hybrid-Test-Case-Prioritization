@@ -58,12 +58,15 @@ def test_get_test_cases(tmp_path):
     assert cases[2].history == [False]
 
 def test_git_changed_files():
-    # Since we initialized Git and have made commits, we can query our own git repo
+    # Query our own git repo.  We only assert structural correctness here
+    # (a list of strings) rather than pinning specific filenames which change
+    # with every new commit.
     changed = get_latest_changed_files(".")
     assert isinstance(changed, list)
-    normalized = [f.replace("\\", "/") for f in changed]
-    # Check that at least one of the recently modified files is tracked
-    assert "core/test_ingestion.py" in normalized or "sample_app/conftest.py" in normalized
+    assert len(changed) > 0, "Expected at least one changed file in the latest commit"
+    # Every entry must be a non-empty string
+    for f in changed:
+        assert isinstance(f, str) and len(f) > 0
 
 from unittest.mock import patch
 
