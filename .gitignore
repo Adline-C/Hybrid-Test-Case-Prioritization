@@ -3,3 +3,4 @@ __pycache__/
 .coverage
 coverage_map.json
 test_history.json
+prioritized_tests.txt

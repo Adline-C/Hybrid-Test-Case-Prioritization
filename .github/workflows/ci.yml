@@ -1,0 +1,118 @@
+name: Hybrid Test Case Prioritization CI
+
+# Run on every push and pull-request to the master branch
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+    branches: ["master", "main"]
+
+jobs:
+  prioritize-and-test:
+    name: Prioritize & Run Tests
+    runs-on: ubuntu-latest
+
+    # PostgreSQL service container (available as localhost:5432 inside the job)
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        # Wait until the DB accepts connections before continuing
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      # ── 1. Check out the code ──────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        # Fetch full history so GitPython can read the parent commit diff
+        with:
+          fetch-depth: 2
+
+      # ── 2. Set up Python ───────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # ── 3. Install Python dependencies ────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi httpx pydantic pytest coverage GitPython psycopg2-binary anyio
+
+      # ── 4. Initialise the database tables ─────────────────────────────────
+      - name: Initialise PostgreSQL tables
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: postgres
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+        run: |
+          python - <<'EOF'
+          from core.storage import init_db
+          init_db()
+          print("Database tables initialised.")
+          EOF
+
+      # ── 5. Run sample_app tests once to collect coverage + run history ─────
+      # The conftest.py hooks write coverage_map.json and test_history.json
+      # AND attempt to write to Postgres (succeeds here because the service is running).
+      - name: Collect coverage & run history
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: postgres
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+        run: |
+          python -m pytest sample_app/test_main.py --tb=short
+
+      # ── 6. Run the prioritization engine ──────────────────────────────────
+      # Reads coverage_map.json + test_history.json (JSON fallback) and
+      # prints + saves the ranked test order.
+      - name: Prioritize test cases
+        run: |
+          python -m core.prioritize_runner --output-file prioritized_tests.txt
+          echo "--- Prioritized order ---"
+          cat prioritized_tests.txt
+
+      # ── 7. Re-run tests in prioritized order ──────────────────────────────
+      # We read the ordered node IDs from the file and pass them to pytest
+      # so tests execute from highest-risk to lowest-risk.
+      - name: Run tests in prioritized order
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: postgres
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+        run: |
+          # Convert the one-per-line file into a space-separated argument list
+          TESTS=$(cat prioritized_tests.txt | tr '\n' ' ')
+          echo "Running: pytest $TESTS"
+          python -m pytest $TESTS --tb=short -v
+
+      # ── 8. Run all other core tests (engine, ingestion, storage, runner) ───
+      - name: Run core unit tests
+        run: |
+          python -m pytest core/test_engine.py core/test_ingestion.py core/test_storage.py core/test_prioritize_runner.py -v
+
+      # ── 9. Upload prioritized_tests.txt as a CI artifact ──────────────────
+      - name: Upload prioritized test order artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prioritized-test-order
+          path: prioritized_tests.txt
+          retention-days: 7
