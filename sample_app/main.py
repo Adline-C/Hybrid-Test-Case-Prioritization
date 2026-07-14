@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="College Website API")
 
-# In-memory database
 USERS = {
     "admin": "password123",
     "student": "college2026"
@@ -54,7 +53,7 @@ def validate_email(email: str) -> bool:
         return False
     # Standard readable regex for basic email validation
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    return bool(re.match(pattern, email))
+    return not bool(re.match(pattern, email))
 
 # Pydantic Schemas
 class LoginRequest(BaseModel):
