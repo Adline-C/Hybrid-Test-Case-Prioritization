@@ -180,3 +180,169 @@ def get_comparison():
     ]
 
     return ComparisonResponse(before=before_list, after=after_list, detail=detail)
+
+
+import tempfile
+import shutil
+import subprocess
+import glob
+import sys
+
+class AnalyzeRequest(BaseModel):
+    repo_url: str
+
+@app.post("/api/analyze", response_model=RankingResponse)
+def analyze_repo(payload: AnalyzeRequest):
+    """
+    Clones a public GitHub repository, installs its requirements (if present),
+    runs pytest with coverage to build test mapping files, and scores/prioritizes
+    its test cases. Returns the ranked test suite list.
+    """
+    repo_url = payload.repo_url.strip()
+    if not repo_url:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Repository URL cannot be empty")
+
+    # 1. Create a temp directory
+    temp_dir = tempfile.mkdtemp()
+    try:
+        # 2. Clone the repository using GitPython
+        import git
+        from fastapi import HTTPException
+        try:
+            git.Repo.clone_from(repo_url, temp_dir, depth=2)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Failed to clone repository. Make sure it is public and valid. Error: {str(e)}"
+            )
+
+        # 3. Check for pytest tests
+        test_files = (
+            glob.glob(os.path.join(temp_dir, "**/test_*.py"), recursive=True) +
+            glob.glob(os.path.join(temp_dir, "**/*_test.py"), recursive=True)
+        )
+        if not test_files:
+            raise HTTPException(status_code=400, detail="No pytest tests found in this repository")
+
+        # 4. Install dependencies from requirements.txt if present
+        req_path = os.path.join(temp_dir, "requirements.txt")
+        if os.path.exists(req_path):
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--user", "-r", req_path],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=180
+                )
+            except subprocess.TimeoutExpired:
+                raise HTTPException(status_code=400, detail="Dependency installation timed out after 3 minutes.")
+            except subprocess.CalledProcessError as e:
+                err_msg = e.stderr.decode("utf-8", errors="ignore")
+                raise HTTPException(status_code=400, detail=f"Dependency installation failed: {err_msg}")
+
+        # 5. Inject a temporary conftest.py to instrument test coverage and outcomes
+        conftest_content = """
+import os
+import json
+import pytest
+import coverage
+
+cov = None
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    global cov
+    cov = coverage.Coverage(source=[os.getcwd()])
+    config._covered_files_map = {}
+    config._run_results = {}
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    global cov
+    if cov:
+        cov.erase()
+        cov.start()
+    yield
+    if cov:
+        cov.stop()
+        cov.save()
+        data = cov.get_data()
+        covered_files = []
+        cwd = os.getcwd()
+        for filepath in data.measured_files():
+            rel_path = os.path.relpath(filepath, cwd).replace("\\\\", "/")
+            if not rel_path.startswith("test_") and not "test_" in rel_path and not rel_path.endswith("conftest.py"):
+                covered_files.append(rel_path)
+        item.config._covered_files_map[item.nodeid] = covered_files
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when == "call":
+        item.config._run_results[item.nodeid] = rep.passed
+
+def pytest_sessionfinish(session, exitstatus):
+    if hasattr(session.config, "_covered_files_map"):
+        with open("coverage_map.json", "w") as f:
+            json.dump(session.config._covered_files_map, f, indent=4)
+    if hasattr(session.config, "_run_results"):
+        history = {}
+        for nodeid, passed in session.config._run_results.items():
+            history[nodeid] = [passed]
+        with open("test_history.json", "w") as f:
+            json.dump(history, f, indent=4)
+"""
+        with open(os.path.join(temp_dir, "conftest.py"), "w") as f:
+            f.write(conftest_content)
+
+        # 6. Run pytest on the cloned repo to generate coverage and history files
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pytest", "-q"],
+                cwd=temp_dir,
+                check=False, # We want to collect fail results, not stop execution
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=120
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to execute tests: {str(e)}")
+
+        temp_cov_path = os.path.join(temp_dir, "coverage_map.json")
+        temp_hist_path = os.path.join(temp_dir, "test_history.json")
+
+        if not os.path.exists(temp_cov_path) or not os.path.exists(temp_hist_path):
+            raise HTTPException(
+                status_code=400, 
+                detail="Test execution finished but failed to generate prioritization telemetry."
+            )
+
+        # 7. Execute prioritization engine
+        from core.ingestion import get_latest_changed_files, get_test_cases
+        from core.engine import prioritize_tests
+
+        changed_files = get_latest_changed_files(temp_dir)
+        test_cases = get_test_cases(map_path=temp_cov_path, history_path=temp_hist_path)
+        ranked = prioritize_tests(test_cases, changed_files)
+
+        tests = [
+            RankedTest(
+                rank=i + 1,
+                name=entry["name"],
+                score=entry["score"],
+                overlap=entry["overlap"],
+                failures_in_last_5=entry["failures_in_last_5"],
+                history=entry["history"]
+            )
+            for i, entry in enumerate(ranked)
+        ]
+
+        return RankingResponse(changed_files=changed_files, tests=tests)
+
+    finally:
+        # 8. Clean up temp folder
+        shutil.rmtree(temp_dir, ignore_errors=True)
+

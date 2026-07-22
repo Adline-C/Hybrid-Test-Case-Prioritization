@@ -126,3 +126,55 @@ def test_comparison_moved_by_calculation(mock_get_ranking):
     login = detail_by_name["test_login"]
     assert login["after_rank"] == 1          # highest scorer goes first
     assert login["moved_by"] >= 0            # promoted vs alphabetical
+
+
+# ---------------------------------------------------------------------------
+# /api/analyze
+# ---------------------------------------------------------------------------
+
+@patch("git.Repo.clone_from")
+def test_analyze_repo_clone_error(mock_clone):
+    mock_clone.side_effect = Exception("Connection error")
+    resp = client.post("/api/analyze", json={"repo_url": "https://github.com/invalid/repo"})
+    assert resp.status_code == 400
+    assert "Failed to clone repository" in resp.json()["detail"]
+
+@patch("git.Repo.clone_from")
+@patch("dashboard.api.glob.glob")
+def test_analyze_repo_no_tests(mock_glob, mock_clone):
+    # Mocking glob to return no test files
+    mock_glob.return_value = []
+    resp = client.post("/api/analyze", json={"repo_url": "https://github.com/user/notests"})
+    assert resp.status_code == 400
+    assert "No pytest tests found in this repository" in resp.json()["detail"]
+
+@patch("git.Repo.clone_from")
+@patch("dashboard.api.glob.glob")
+@patch("dashboard.api.os.path.exists")
+@patch("dashboard.api.subprocess.run")
+@patch("core.ingestion.get_latest_changed_files")
+@patch("core.ingestion.get_test_cases")
+@patch("core.engine.prioritize_tests")
+@patch("builtins.open")
+def test_analyze_repo_success(
+    mock_open, mock_prioritize, mock_get_cases, mock_git, mock_run, mock_exists, mock_glob, mock_clone
+):
+    # Setup mocks
+    mock_glob.return_value = ["/tmp/abc/test_a.py"]
+    mock_exists.return_value = True  # requirements.txt exists
+    mock_get_cases.return_value = [
+        CaseMetadata("test_foo", ["a.py"], [True])
+    ]
+    mock_git.return_value = ["a.py"]
+    mock_prioritize.return_value = [
+        {"name": "test_foo", "score": 2, "overlap": True, "failures_in_last_5": 0, "history": [True]}
+    ]
+
+    resp = client.post("/api/analyze", json={"repo_url": "https://github.com/user/success"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["tests"]) == 1
+    assert data["tests"][0]["name"] == "test_foo"
+    assert data["tests"][0]["score"] == 2
+    assert data["tests"][0]["overlap"] is True
+

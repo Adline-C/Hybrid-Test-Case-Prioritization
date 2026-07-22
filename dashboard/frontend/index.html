@@ -435,6 +435,10 @@ function App() {
   const [error, setError]       = useState(null);
   const [lastRefresh, setLastRefresh] = useState(null);
 
+  // Analyze features state
+  const [repoUrl, setRepoUrl]   = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -455,12 +459,62 @@ function App() {
     }
   }, []);
 
-  // Initial load + auto-refresh
+  const handleAnalyze = async () => {
+    if (!repoUrl.strip ? repoUrl.trim() : repoUrl) {
+      const url = repoUrl.trim();
+      setAnalyzing(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}/api/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo_url: url })
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || "Analysis failed");
+        }
+        const data = await res.json();
+        setRanking(data);
+        
+        // Mock the comparison dataset side-by-side positioning
+        const beforeList = [...data.tests].sort((a,b) => a.name.localeCompare(b.name)).map(t => t.name);
+        const afterList = data.tests.map(t => t.name);
+        const beforePos = {}; beforeList.forEach((n, i) => { beforePos[n] = i + 1; });
+        const afterPos = {}; afterList.forEach((n, i) => { afterPos[n] = i + 1; });
+        
+        const comparisonDetail = beforeList.map(name => {
+          const t = data.tests.find(x => x.name === name);
+          return {
+            name,
+            before_rank: beforePos[name],
+            after_rank: afterPos[name],
+            score: t ? t.score : 0,
+            moved_by: beforePos[name] - afterPos[name]
+          };
+        });
+        
+        setComparison({ before: beforeList, after: afterList, detail: comparisonDetail });
+        setLastRefresh("Repo: " + url.split("/").slice(-1)[0]);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setAnalyzing(false);
+      }
+    }
+  };
+
+  // Initial load + auto-refresh (only auto-refresh if not analyzing or showing custom repo)
   useEffect(() => {
     fetchAll();
-    const timer = setInterval(fetchAll, REFRESH_INTERVAL_MS);
+    const timer = setInterval(() => {
+      // Don't auto-refresh if user is looking at a custom repo analysis
+      if (!repoUrl.trim() && !analyzing) {
+        fetchAll();
+      }
+    }, REFRESH_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [fetchAll]);
+  }, [fetchAll, repoUrl, analyzing]);
 
   return (
     <div className="shell">
@@ -476,6 +530,57 @@ function App() {
           {lastRefresh ? `Updated ${lastRefresh}` : "Connecting…"}
         </div>
       </header>
+
+      {/* Repository Analysis Form */}
+      <div className="card" style={{padding:'1.2rem', marginBottom:'1.5rem', display:'flex', gap:'0.8rem', flexWrap:'wrap', alignItems:'center'}}>
+        <div style={{flex: '1', minWidth: '280px'}}>
+          <label style={{fontSize:'.75rem', color:'var(--muted)', display:'block', marginBottom:'.3rem', fontWeight:'600'}}>
+            Analyze Public GitHub Repository:
+          </label>
+          <input 
+            type="text" 
+            placeholder="e.g., https://github.com/username/repository" 
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            disabled={analyzing}
+            style={{
+              width:'100%', 
+              background:'var(--surface2)', 
+              border:'1px solid var(--border)', 
+              borderRadius:'6px', 
+              padding:'.45rem .8rem', 
+              color:'var(--text)', 
+              fontSize:'.82rem'
+            }}
+          />
+        </div>
+        <button 
+          onClick={handleAnalyze}
+          disabled={analyzing || !repoUrl.trim()}
+          style={{
+            alignSelf:'flex-end',
+            padding:'.5rem 1.4rem', 
+            borderRadius:'6px', 
+            border:'none', 
+            background:'var(--accent)', 
+            color:'#000', 
+            fontWeight:'600', 
+            fontSize:'.82rem',
+            cursor:(analyzing || !repoUrl.trim()) ? 'not-allowed' : 'pointer',
+            opacity:(analyzing || !repoUrl.trim()) ? 0.6 : 1,
+            transition: 'opacity 0.15s'
+          }}
+        >
+          {analyzing ? "Analyzing..." : "Analyze"}
+        </button>
+      </div>
+
+      {analyzing && (
+        <div className="state-box" style={{marginBottom:'1.5rem'}}>
+          <div className="icon">⚙️</div>
+          <p>Cloning repository, installing dependencies, and running test suite... This may take up to a minute.</p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="tabs">
@@ -495,7 +600,7 @@ function App() {
       </div>
 
       {/* States */}
-      {loading && (
+      {loading && !analyzing && (
         <div className="state-box">
           <div className="icon">⏳</div>
           <p>Loading ranking data from the API…</p>
@@ -503,18 +608,18 @@ function App() {
         </div>
       )}
 
-      {!loading && error && (
+      {!loading && error && !analyzing && (
         <div className="state-box">
           <div className="icon">🔌</div>
-          <p>Cannot reach the API server.</p>
+          <p>Error in Analysis or API Server Connection.</p>
           <small>
-            Start it with: python -m uvicorn dashboard.api:app --port 8001
+            Verify API server state or your repository URL details.
           </small>
           <small style={{marginTop:'.6rem', color:'var(--red)'}}>{error}</small>
         </div>
       )}
 
-      {!loading && !error && ranking && (
+      {!loading && !error && ranking && !analyzing && (
         <>
           {tab === "ranking" && (
             <RankingTable
