@@ -66,6 +66,16 @@ def load_run_history(history_path: str = "test_history.json") -> dict:
         print(f"Error loading run history: {e}")
         return {}
 
+def normalize_test_name(name: str) -> str:
+    """
+    Standardizes test names (e.g. converting 'test_main.py::...' to 'sample_app/test_main.py::...')
+    so that history logs and coverage maps align regardless of where pytest was run from.
+    """
+    name = name.replace("\\", "/")
+    if "test_main.py::" in name and not name.startswith("sample_app/"):
+        return "sample_app/" + name
+    return name
+
 def get_test_cases(map_path: str = "coverage_map.json", history_path: str = "test_history.json", use_db: bool = False, conn_params: dict = None) -> list[CaseMetadata]:
     """
     Integrates coverage mapping and historical execution data to build
@@ -75,15 +85,19 @@ def get_test_cases(map_path: str = "coverage_map.json", history_path: str = "tes
     if use_db:
         try:
             from core.storage import get_coverage_map, get_historical_runs
-            coverage_map = get_coverage_map(conn_params)
-            run_history = get_historical_runs(conn_params)
+            raw_coverage = get_coverage_map(conn_params)
+            raw_history = get_historical_runs(conn_params)
         except Exception as e:
             print(f"Error reading from database: {e}. Falling back to JSON files.")
-            coverage_map = load_coverage_map(map_path)
-            run_history = load_run_history(history_path)
+            raw_coverage = load_coverage_map(map_path)
+            raw_history = load_run_history(history_path)
     else:
-        coverage_map = load_coverage_map(map_path)
-        run_history = load_run_history(history_path)
+        raw_coverage = load_coverage_map(map_path)
+        raw_history = load_run_history(history_path)
+
+    # Normalize keys to align test cases
+    coverage_map = {normalize_test_name(k): v for k, v in raw_coverage.items()}
+    run_history = {normalize_test_name(k): v for k, v in raw_history.items()}
     
     # We want to represent all tests found in either the coverage map or history.
     all_tests = set(coverage_map.keys()) | set(run_history.keys())
