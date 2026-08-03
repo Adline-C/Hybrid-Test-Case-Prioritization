@@ -554,7 +554,11 @@ function App() {
             type="text" 
             placeholder="e.g., https://github.com/username/repository" 
             value={repoUrl}
-            onChange={(e) => setRepoUrl(e.target.value)}
+            onChange={(e) => {
+              // ONLY updates the raw input string state (repoUrl).
+              // Does not clear tables, reset states, or touch active rendering.
+              setRepoUrl(e.target.value);
+            }}
             disabled={analyzing}
             style={{
               width:'100%', 
