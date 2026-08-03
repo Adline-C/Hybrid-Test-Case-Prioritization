@@ -302,9 +302,21 @@ def pytest_sessionfinish(session, exitstatus):
 
         # 6. Run pytest on the cloned repo to generate coverage and history files
         try:
+            # Set PYTHONPATH to include the cloned repo's directory and its src/ directory
+            # so that both flat layouts and src layouts take import priority.
+            env = os.environ.copy()
+            env["PYTHONPATH"] = (
+                temp_dir + 
+                os.pathsep + 
+                os.path.join(temp_dir, "src") + 
+                os.pathsep + 
+                env.get("PYTHONPATH", "")
+            )
+            
             subprocess.run(
                 [sys.executable, "-m", "pytest", "-q"],
                 cwd=temp_dir,
+                env=env,
                 check=False, # We want to collect fail results, not stop execution
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
