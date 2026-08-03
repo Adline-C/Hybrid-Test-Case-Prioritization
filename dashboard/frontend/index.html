@@ -471,8 +471,10 @@ function App() {
       setComparison(null);
       try {
         const res = await fetch(`${API_BASE}/api/analyze`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
           body: JSON.stringify({ repo_url: url })
         });
         if (!res.ok) {
