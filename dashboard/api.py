@@ -205,6 +205,8 @@ def analyze_repo(payload: AnalyzeRequest):
 
     # 1. Create a temp directory
     temp_dir = tempfile.mkdtemp()
+    temp_cov_path = os.path.join(temp_dir, "coverage_map.json")
+    temp_hist_path = os.path.join(temp_dir, "test_history.json")
     try:
         # 2. Clone the repository using GitPython
         import git
@@ -243,7 +245,7 @@ def analyze_repo(payload: AnalyzeRequest):
                 raise HTTPException(status_code=400, detail=f"Dependency installation failed: {err_msg}")
 
         # 5. Inject a temporary conftest.py to instrument test coverage and outcomes
-        conftest_content = """
+        conftest_content = f"""
 import os
 import json
 import pytest
@@ -255,8 +257,8 @@ cov = None
 def pytest_configure(config):
     global cov
     cov = coverage.Coverage(source=[os.getcwd()])
-    config._covered_files_map = {}
-    config._run_results = {}
+    config._covered_files_map = {{}}
+    config._run_results = {{}}
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_call(item):
@@ -286,13 +288,13 @@ def pytest_runtest_makereport(item, call):
 
 def pytest_sessionfinish(session, exitstatus):
     if hasattr(session.config, "_covered_files_map"):
-        with open("coverage_map.json", "w") as f:
+        with open({repr(temp_cov_path)}, "w") as f:
             json.dump(session.config._covered_files_map, f, indent=4)
     if hasattr(session.config, "_run_results"):
-        history = {}
+        history = {{}}
         for nodeid, passed in session.config._run_results.items():
             history[nodeid] = [passed]
-        with open("test_history.json", "w") as f:
+        with open({repr(temp_hist_path)}, "w") as f:
             json.dump(history, f, indent=4)
 """
         with open(os.path.join(temp_dir, "conftest.py"), "w") as f:
@@ -310,9 +312,6 @@ def pytest_sessionfinish(session, exitstatus):
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to execute tests: {str(e)}")
-
-        temp_cov_path = os.path.join(temp_dir, "coverage_map.json")
-        temp_hist_path = os.path.join(temp_dir, "test_history.json")
 
         if not os.path.exists(temp_cov_path) or not os.path.exists(temp_hist_path):
             raise HTTPException(
