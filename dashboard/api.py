@@ -38,7 +38,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -199,6 +199,7 @@ def analyze_repo(payload: AnalyzeRequest):
     its test cases. Returns the ranked test suite list.
     """
     repo_url = payload.repo_url.strip()
+    print(f"Analyzing repository: {repo_url}")
     if not repo_url:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Repository URL cannot be empty")
