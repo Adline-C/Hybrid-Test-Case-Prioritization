@@ -437,6 +437,7 @@ function App() {
 
   // Analyze features state
   const [repoUrl, setRepoUrl]   = useState("");
+  const [isCustomRepo, setIsCustomRepo] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
 
   const fetchAll = useCallback(async () => {
@@ -452,6 +453,7 @@ function App() {
       setRanking(rData);
       setComparison(cData);
       setLastRefresh(new Date().toLocaleTimeString());
+      setIsCustomRepo(false); // We loaded the default local repo
     } catch (e) {
       setError(e.message || "Could not reach the API");
     } finally {
@@ -460,10 +462,13 @@ function App() {
   }, []);
 
   const handleAnalyze = async () => {
-    if (!repoUrl.strip ? repoUrl.trim() : repoUrl) {
+    if (repoUrl && repoUrl.trim()) {
       const url = repoUrl.trim();
       setAnalyzing(true);
       setError(null);
+      // Immediately clear old tables
+      setRanking(null);
+      setComparison(null);
       try {
         const res = await fetch(`${API_BASE}/api/analyze`, {
           method: "POST",
@@ -476,6 +481,7 @@ function App() {
         }
         const data = await res.json();
         setRanking(data);
+        setIsCustomRepo(true);
         
         // Mock the comparison dataset side-by-side positioning
         const beforeList = [...data.tests].sort((a,b) => a.name.localeCompare(b.name)).map(t => t.name);
@@ -498,23 +504,28 @@ function App() {
         setLastRefresh("Repo: " + url.split("/").slice(-1)[0]);
       } catch (e) {
         setError(e.message);
+        setIsCustomRepo(false);
+        fetchAll();
       } finally {
         setAnalyzing(false);
       }
     }
   };
 
-  // Initial load + auto-refresh (only auto-refresh if not analyzing or showing custom repo)
+  // Initial load on mount
   useEffect(() => {
     fetchAll();
+  }, [fetchAll]);
+
+  // Periodic auto-refresh for default local repo (disabled if viewing custom repo)
+  useEffect(() => {
     const timer = setInterval(() => {
-      // Don't auto-refresh if user is looking at a custom repo analysis
-      if (!repoUrl.trim() && !analyzing) {
+      if (!isCustomRepo && !analyzing) {
         fetchAll();
       }
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [fetchAll, repoUrl, analyzing]);
+  }, [fetchAll, isCustomRepo, analyzing]);
 
   return (
     <div className="shell">
@@ -594,7 +605,7 @@ function App() {
 
       {/* Refresh */}
       <div style={{display:'flex', justifyContent:'flex-end', marginBottom:'1rem'}}>
-        <button className="btn-refresh" onClick={fetchAll} id="btn-refresh">
+        <button className="btn-refresh" onClick={isCustomRepo ? handleAnalyze : fetchAll} id="btn-refresh">
           ↻ Refresh now
         </button>
       </div>

@@ -338,6 +338,25 @@ def pytest_sessionfinish(session, exitstatus):
 
         changed_files = get_latest_changed_files(temp_dir)
         test_cases = get_test_cases(map_path=temp_cov_path, history_path=temp_hist_path)
+
+        # Commit repository telemetry to PostgreSQL if the DB is available
+        try:
+            from core.storage import save_test_run, save_coverage_map
+            import json
+            with open(temp_cov_path, "r") as f:
+                cov_data = json.load(f)
+            with open(temp_hist_path, "r") as f:
+                hist_data = json.load(f)
+
+            for t_name, files in cov_data.items():
+                save_coverage_map(t_name, files)
+            for t_name, history in hist_data.items():
+                for passed in history:
+                    save_test_run(t_name, passed, changed_files)
+            print("Successfully saved analyzed repo test results to PostgreSQL database.")
+        except Exception as e:
+            print(f"Could not save execution logs to PostgreSQL: {e}. Continuing with in-memory execution.")
+
         ranked = prioritize_tests(test_cases, changed_files)
 
         tests = [
