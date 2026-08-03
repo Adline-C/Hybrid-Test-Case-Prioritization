@@ -314,14 +314,18 @@ def pytest_sessionfinish(session, exitstatus):
                 env.get("PYTHONPATH", "")
             )
             
+            pytest_cmd = [sys.executable, "-m", "pytest", "-q", "--maxfail=5"]
+            if os.path.exists(os.path.join(temp_dir, "tests")):
+                pytest_cmd.append("tests")
+            
             subprocess.run(
-                [sys.executable, "-m", "pytest", "-q"],
+                pytest_cmd,
                 cwd=temp_dir,
                 env=env,
                 check=False, # We want to collect fail results, not stop execution
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=120
+                timeout=300
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to execute tests: {str(e)}")
