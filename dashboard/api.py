@@ -188,11 +188,11 @@ import subprocess
 import glob
 import sys
 
-class AnalyzeRequest(BaseModel):
+class RepoAnalysisRequest(BaseModel):
     repo_url: str
 
 @app.post("/api/analyze", response_model=RankingResponse)
-def analyze_repo(payload: AnalyzeRequest):
+def analyze_repo(payload: RepoAnalysisRequest):
     """
     Clones a public GitHub repository, installs its requirements (if present),
     runs pytest with coverage to build test mapping files, and scores/prioritizes
