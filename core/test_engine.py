@@ -84,3 +84,20 @@ def test_priority_sorting():
     assert ranked[3]["name"] == "test_b"  # score 2
     
     assert [r["score"] for r in ranked] == [3, 3, 2, 2]
+
+
+def test_priority_custom_weights():
+    # Test case has overlap and 2 failures
+    tc = CaseMetadata(
+        name="test_custom",
+        covered_files=["sample_app/main.py"],
+        history=[False, True, False, True, True]
+    )
+    changed = ["sample_app/main.py"]
+    # Run with w_c = 3.5, w_h = 0.5
+    result = score_test(tc, changed, w_c=3.5, w_h=0.5)
+    # Expected: overlap boost (3.5) + (2 failures * 0.5) = 4.5
+    assert result["score"] == 4.5
+    assert result["overlap"] is True
+    assert result["failures_in_last_5"] == 2
+

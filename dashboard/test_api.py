@@ -66,6 +66,15 @@ def test_ranking_returns_sorted_by_score(mock_get_ranking, mock_runner):
 
     assert data["changed_files"] == MOCK_CHANGED
 
+
+@patch("dashboard.api._get_ranking")
+def test_ranking_custom_weights(mock_get_ranking):
+    mock_get_ranking.return_value = (MOCK_CHANGED, [])
+    resp = client.get("/api/ranking?w_c=4.5&w_h=0.5")
+    assert resp.status_code == 200
+    mock_get_ranking.assert_called_once_with(4.5, 0.5)
+
+
 # ---------------------------------------------------------------------------
 # /api/ranking/before
 # ---------------------------------------------------------------------------

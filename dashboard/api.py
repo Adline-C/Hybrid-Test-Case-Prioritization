@@ -38,6 +38,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -49,7 +50,7 @@ app.add_middleware(
 class RankedTest(BaseModel):
     rank: int
     name: str
-    score: int
+    score: float
     overlap: bool           # True if test touches a recently-changed file
     failures_in_last_5: int
     history: list[bool]     # full pass/fail history stored for this test
@@ -62,7 +63,7 @@ class ComparisonEntry(BaseModel):
     before_rank: int        # alphabetical position
     after_rank: int         # prioritized position
     name: str
-    score: int
+    score: float
     moved_by: int           # positive = promoted, negative = demoted
 
 class ComparisonResponse(BaseModel):
@@ -74,7 +75,7 @@ class ComparisonResponse(BaseModel):
 # Helper
 # ---------------------------------------------------------------------------
 
-def _get_ranking() -> tuple[list[str], list[dict]]:
+def _get_ranking(w_c: float = 2.0, w_h: float = 1.0) -> tuple[list[str], list[dict]]:
     """
     Returns (changed_files, ranked_dicts).
     Reads coverage_map.json + test_history.json from the repo root
@@ -82,7 +83,7 @@ def _get_ranking() -> tuple[list[str], list[dict]]:
     """
     from core.ingestion import get_latest_changed_files
     changed_files = get_latest_changed_files(".")
-    ranked = build_ranked_list()
+    ranked = build_ranked_list(w_c=w_c, w_h=w_h)
     return changed_files, ranked
 
 # ---------------------------------------------------------------------------
@@ -96,16 +97,16 @@ def health():
 
 
 @app.get("/api/ranking", response_model=RankingResponse)
-def get_ranking():
+def get_ranking(w_c: float = Query(2.0), w_h: float = Query(1.0)):
     """
     Returns all known tests ranked by their prioritization score
     (highest score = most likely to catch a newly introduced bug).
 
     Scoring formula:
-      +2 if the test's covered files overlap with the latest git commit's changed files
-      +1 for each failure in the most recent 5 runs
+      w_c if the test's covered files overlap with the latest git commit's changed files
+      w_h for each failure in the most recent 5 runs
     """
-    changed_files, ranked = _get_ranking()
+    changed_files, ranked = _get_ranking(w_c, w_h)
 
     tests = [
         RankedTest(
@@ -122,13 +123,13 @@ def get_ranking():
 
 
 @app.get("/api/ranking/before", response_model=RankingResponse)
-def get_before_ranking():
+def get_before_ranking(w_c: float = Query(2.0), w_h: float = Query(1.0)):
     """
     Returns the same tests in alphabetical order — the default ordering
     pytest uses without prioritization.  Used for the 'before' side of
     the comparison view.
     """
-    changed_files, ranked = _get_ranking()
+    changed_files, ranked = _get_ranking(w_c, w_h)
 
     # Sort alphabetically to simulate vanilla pytest collection order
     before_ranked = sorted(ranked, key=lambda x: x["name"])
@@ -148,13 +149,13 @@ def get_before_ranking():
 
 
 @app.get("/api/comparison", response_model=ComparisonResponse)
-def get_comparison():
+def get_comparison(w_c: float = Query(2.0), w_h: float = Query(1.0)):
     """
     Returns a side-by-side comparison of the alphabetical (before) order
     vs. the prioritized (after) order, along with how many positions each
     test was promoted or demoted.
     """
-    changed_files, ranked = _get_ranking()
+    changed_files, ranked = _get_ranking(w_c, w_h)
 
     # Alphabetical = "before" order
     before_list = [e["name"] for e in sorted(ranked, key=lambda x: x["name"])]
@@ -192,7 +193,7 @@ class RepoAnalysisRequest(BaseModel):
     repo_url: str
 
 @app.post("/api/analyze", response_model=RankingResponse)
-def analyze_repo(payload: RepoAnalysisRequest):
+def analyze_repo(payload: RepoAnalysisRequest, w_c: float = Query(2.0), w_h: float = Query(1.0)):
     """
     Clones a public GitHub repository, installs its requirements (if present),
     runs pytest with coverage to build test mapping files, and scores/prioritizes
@@ -361,7 +362,7 @@ def pytest_sessionfinish(session, exitstatus):
         except Exception as e:
             print(f"Could not save execution logs to PostgreSQL: {e}. Continuing with in-memory execution.")
 
-        ranked = prioritize_tests(test_cases, changed_files)
+        ranked = prioritize_tests(test_cases, changed_files, w_c=w_c, w_h=w_h)
 
         tests = [
             RankedTest(

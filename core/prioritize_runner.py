@@ -25,7 +25,7 @@ from core.ingestion import get_latest_changed_files, get_test_cases
 from core.engine import prioritize_tests
 
 
-def build_ranked_list(repo_path: str = ".", use_db: bool = False, conn_params: dict = None) -> list[dict]:
+def build_ranked_list(repo_path: str = ".", use_db: bool = False, conn_params: dict = None, w_c: float = 2.0, w_h: float = 1.0) -> list[dict]:
     """
     Orchestrates the full prioritization pipeline:
       - Detect which files changed in the latest git commit.
@@ -41,7 +41,7 @@ def build_ranked_list(repo_path: str = ".", use_db: bool = False, conn_params: d
     test_cases = get_test_cases(use_db=use_db, conn_params=conn_params)
 
     # Step 3 – run the scoring engine
-    ranked = prioritize_tests(test_cases, changed_files)
+    ranked = prioritize_tests(test_cases, changed_files, w_c=w_c, w_h=w_h)
     return ranked
 
 
