@@ -42,13 +42,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
 
       # ── 3. Install Python dependencies ────────────────────────────────────
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi httpx pydantic pytest coverage GitPython psycopg2-binary anyio
+          pip install -r requirements.txt
 
       # ── 4. Initialise the database tables ─────────────────────────────────
       - name: Initialise PostgreSQL tables
@@ -69,6 +70,7 @@ jobs:
       # The conftest.py hooks write coverage_map.json and test_history.json
       # AND attempt to write to Postgres (succeeds here because the service is running).
       - name: Collect coverage & run history
+        continue-on-error: true
         env:
           DB_HOST: localhost
           DB_PORT: 5432

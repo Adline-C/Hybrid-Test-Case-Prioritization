@@ -53,7 +53,7 @@ def validate_email(email: str) -> bool:
         return False
     # Standard readable regex for basic email validation
     pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    return not bool(re.match(pattern, email))
+    return bool(re.match(pattern, email))
 
 # Pydantic Schemas
 class LoginRequest(BaseModel):
@@ -99,7 +99,7 @@ def register_student(payload: RegisterRequest):
     if invalid_courses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid course ID(s): {', '.join(invalid_courses)}"
+            detail=f"Invalid course ID: {', '.join(invalid_courses)}"
         )
         
     registration = {
