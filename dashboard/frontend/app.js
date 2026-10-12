@@ -1,6 +1,6 @@
 const { useState, useEffect, useCallback, useRef } = React;
 
-const API_BASE = "http://localhost:8001";
+const API_BASE = "https://hybrid-test-case-prioritization.onrender.com";
 
 function formatScore(score) {
   return Number(score).toFixed(2);
