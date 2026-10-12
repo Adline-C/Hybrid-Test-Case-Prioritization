@@ -6,7 +6,8 @@ from core.engine import CaseMetadata
 def get_latest_changed_files(repo_path: str = ".") -> list[str]:
     """
     Retrieves the list of files modified or added in the latest commit.
-    If the repository has no commits or is invalid, returns an empty list.
+    If the latest commit only modifies non-Python files (.md, .rst, .txt, etc.),
+    falls back to analyzing the most recent commit that actually modified .py files.
     """
     try:
         repo = git.Repo(repo_path)
@@ -33,10 +34,51 @@ def get_latest_changed_files(repo_path: str = ".") -> list[str]:
             if diff.b_path:
                 changed_files.add(diff.b_path)
                 
+        # Check if any changed file is a Python file (.py)
+        has_py = any(f.endswith(".py") for f in changed_files)
+        if not has_py:
+            # Fallback to the most recent commit that modified .py files
+            try:
+                py_commits = list(repo.iter_commits(max_count=1, paths="*.py"))
+                if py_commits:
+                    py_commit = py_commits[0]
+                    if py_commit.parents:
+                        py_diffs = py_commit.parents[0].diff(py_commit)
+                    else:
+                        py_diffs = py_commit.diff(git.NULL_TREE)
+                    py_changed = set()
+                    for diff in py_diffs:
+                        if diff.a_path:
+                            py_changed.add(diff.a_path)
+                        if diff.b_path:
+                            py_changed.add(diff.b_path)
+                    if py_changed:
+                        return list(py_changed)
+            except Exception as sub_e:
+                print(f"Error fetching py commit fallback: {sub_e}")
+
         return list(changed_files)
     except Exception as e:
         print(f"Error reading git repo: {e}")
         return []
+
+
+
+def get_head_commit_meta(repo_path: str = ".") -> dict:
+    """
+    Returns {sha, repo_name} for the HEAD commit. Safe fallbacks if git is unavailable.
+    """
+    abs_path = os.path.abspath(repo_path)
+    repo_name = os.path.basename(abs_path.rstrip("\\/")) or "repository"
+    try:
+        repo = git.Repo(repo_path)
+        if repo.working_tree_dir:
+            repo_name = os.path.basename(os.path.abspath(repo.working_tree_dir))
+        if not repo.head.is_valid():
+            return {"sha": "HEAD", "repo_name": repo_name}
+        return {"sha": repo.head.commit.hexsha[:7], "repo_name": repo_name}
+    except Exception:
+        return {"sha": "HEAD", "repo_name": repo_name}
 
 def load_coverage_map(map_path: str = "coverage_map.json") -> dict:
     """

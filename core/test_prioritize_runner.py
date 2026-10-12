@@ -25,22 +25,22 @@ def _make_cases():
 @patch("core.prioritize_runner.get_latest_changed_files", return_value=["sample_app/main.py"])
 def test_build_ranked_list_basic(mock_git, mock_cases):
     """
-    When sample_app/main.py changed:
-      test_login    → overlap(+2) + 2 failures(+2) = 4
-      test_courses  → overlap(+2) + 0 failures     = 2
-      test_register → no overlap  + 1 failure(+1)  = 1
+    When sample_app/main.py changed (normalized 0–3):
+      test_login    → C=1, H=0.4 → S = 3*(2*1 + 1*0.4)/3 = 2.4
+      test_courses  → C=1, H=0.0 → S = 3*(2*1 + 0)/3     = 2.0
+      test_register → C=0, H=0.2 → S = 3*(0 + 1*0.2)/3   = 0.2
     """
     ranked = build_ranked_list()
 
     assert ranked[0]["name"] == "test_login"
-    assert ranked[0]["score"] == 4
+    assert ranked[0]["score"] == pytest.approx(2.4)
     assert ranked[0]["overlap"] is True
 
     assert ranked[1]["name"] == "test_courses"
-    assert ranked[1]["score"] == 2
+    assert ranked[1]["score"] == pytest.approx(2.0)
 
     assert ranked[2]["name"] == "test_register"
-    assert ranked[2]["score"] == 1
+    assert ranked[2]["score"] == pytest.approx(0.2)
     assert ranked[2]["overlap"] is False
 
 
@@ -50,13 +50,12 @@ def test_build_ranked_list_no_changes(mock_git, mock_cases):
     """When no files changed, overlap is never triggered; only history scores remain."""
     ranked = build_ranked_list()
 
-    # test_login has 2 failures → score 2
-    # test_courses has 0 failures → score 0
-    # test_register has 1 failure → score 1
+    # No overlap: S = 3 * (w_h * H) / (w_c + w_h) with defaults 2 and 1
+    # test_login H=0.4 → 0.4; test_courses H=0 → 0; test_register H=0.2 → 0.2
     scores = {r["name"]: r["score"] for r in ranked}
-    assert scores["test_login"] == 2
-    assert scores["test_courses"] == 0
-    assert scores["test_register"] == 1
+    assert scores["test_login"] == pytest.approx(0.4)
+    assert scores["test_courses"] == pytest.approx(0.0)
+    assert scores["test_register"] == pytest.approx(0.2)
     # Must be sorted descending
     assert ranked[0]["score"] >= ranked[1]["score"] >= ranked[2]["score"]
 

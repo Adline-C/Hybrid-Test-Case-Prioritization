@@ -53,9 +53,9 @@ def test_ranking_returns_sorted_by_score(mock_get_ranking, mock_runner):
     tests = data["tests"]
     assert len(tests) == 3
 
-    # First test should be test_login: overlap(+2) + 2 failures(+2) = 4
+    # First test should be test_login: C=1, H=0.4 → S = 2.4
     assert tests[0]["name"] == "test_login"
-    assert tests[0]["score"] == 4
+    assert tests[0]["score"] == pytest.approx(2.4)
     assert tests[0]["overlap"] is True
     assert tests[0]["failures_in_last_5"] == 2
     assert tests[0]["rank"] == 1
@@ -186,4 +186,31 @@ def test_analyze_repo_success(
     assert data["tests"][0]["name"] == "test_foo"
     assert data["tests"][0]["score"] == 2
     assert data["tests"][0]["overlap"] is True
+
+
+# ---------------------------------------------------------------------------
+# /api/copilot/explain
+# ---------------------------------------------------------------------------
+
+def test_copilot_explain_endpoint():
+    payload = {
+        "test_name": "src/click/core.py::test_group_chaining",
+        "score": 2.70,
+        "changed_files": ["src/click/core.py"],
+        "recent_fails": 1,
+        "w_c": 2.0,
+        "w_h": 1.0
+    }
+    resp = client.post("/api/copilot/explain", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["test_name"] == payload["test_name"]
+    assert data["score"] == 2.70
+    assert data["priority_level"] == "High Priority"
+    assert "test_group_chaining" in data["explanation"]
+    assert "src/click/core.py" in data["explanation"]
+    assert data["c_t"] == 1.0
+    assert data["h_t"] == 0.20
+    assert "Run first in CI pipeline" in data["recommendation"]
+
 
